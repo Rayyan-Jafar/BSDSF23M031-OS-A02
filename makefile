@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -std=gnu99 -Wall -Wextra -O2
-SRC = src/lsv1.0.0.c
+SRC = src/lsv1.4.0.c
 BIN = bin/ls
 
 all: $(BIN)

@@ -103,3 +103,38 @@ else
 ```
 
 This modular approach keeps the code clean, makes future extensions easier, and prevents mode conflicts.
+
+## Feature-6: Colorized Output (v1.5.0)
+
+### Q1. How do ANSI escape codes work to produce color in a standard Linux terminal? Show the specific code sequence for printing text in green.
+
+ANSI escape codes are special sequences of characters that start with `\033[` and tell the terminal to change text appearance such as color or style.  
+To print text in green, we can use the escape sequence `\033[0;32m` before the text and `\033[0m` after it to reset the color.
+
+**Example:**
+```c
+printf("\033[0;32mThis text is green!\033[0m\n");
+
+Explanation:
+
+\033[ → Begins the escape sequence
+
+0;32m → Sets normal intensity (0) and green foreground color (32)
+
+\033[0m → Resets to default terminal color
+```
+### Q2. To color an executable file, you need to check its permission bits. Explain which bits in the st_mode field you need to check to determine if a file is executable by the owner, group, or others.
+
+The executability of a file is determined using the execute permission bits in the st_mode field of the stat structure.
+| Permission     | Macro     | Description                           |
+| -------------- | --------- | ------------------------------------- |
+| Owner execute  | `S_IXUSR` | File is executable by the owner       |
+| Group execute  | `S_IXGRP` | File is executable by group members   |
+| Others execute | `S_IXOTH` | File is executable by all other users |
+
+To check if a file is executable by anyone:
+```
+if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
+    // File is executable
+}
+```

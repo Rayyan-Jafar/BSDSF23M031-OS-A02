@@ -1,162 +1,101 @@
-/*
-* Programming Assignment 02: lsv1.0.0
-* This is the source file of version 1.0.0
-* Read the write-up of the assignment to add the features to this base version
-* Usage:
-*       $ lsv1.0.0 
-*       % lsv1.0.0  /home
-*       $ lsv1.0.0  /home/kali/   /etc/
-*/
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <dirent.h>
 #include <string.h>
-#include <errno.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <pwd.h>
-#include <grp.h>
-#include <time.h>
+#include <dirent.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
-extern int errno;
+#define SPACING 2 // spaces between columns
 
-void do_ls(const char *dir);
-void list_long_format(const char *path);
-void list_simple(const char *path);
-
-void mode_to_string(mode_t mode, char *str) {
-    // File type
-    str[0] = S_ISDIR(mode) ? 'd' :
-             S_ISLNK(mode) ? 'l' :
-             S_ISCHR(mode) ? 'c' :
-             S_ISBLK(mode) ? 'b' :
-             S_ISFIFO(mode)? 'p' :
-             S_ISSOCK(mode)? 's' : '-';
-
-    // Owner permissions
-    str[1] = (mode & S_IRUSR) ? 'r' : '-';
-    str[2] = (mode & S_IWUSR) ? 'w' : '-';
-    str[3] = (mode & S_IXUSR) ? 'x' : '-';
-
-    // Group permissions
-    str[4] = (mode & S_IRGRP) ? 'r' : '-';
-    str[5] = (mode & S_IWGRP) ? 'w' : '-';
-    str[6] = (mode & S_IXGRP) ? 'x' : '-';
-
-    // Others permissions
-    str[7] = (mode & S_IROTH) ? 'r' : '-';
-    str[8] = (mode & S_IWOTH) ? 'w' : '-';
-    str[9] = (mode & S_IXOTH) ? 'x' : '-';
-    str[10] = '\0';
+// Function to compare strings (used for sorting)
+int compare(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
 }
 
-int main(int argc, char *argv[]) {
-    int opt;
-    int long_format = 0;
+// Function to get terminal width
+int get_terminal_width() {
+    struct winsize w;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == -1) {
+        // fallback if ioctl fails
+        return 80;
+    }
+    return w.ws_col;
+}
 
-    while ((opt = getopt(argc, argv, "l")) != -1) {
-        switch (opt) {
-            case 'l':
-                long_format = 1;
-                break;
-            default:
-                fprintf(stderr, "Usage: %s [-l] [directory]\n", argv[0]);
-                return 1;
-        }
+// Function to print files in column format ("down then across")
+void print_in_columns(char **names, int count) {
+    int term_width = 80;
+    struct winsize ws;
+
+    // Get terminal width if possible
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0)
+        term_width = ws.ws_col;
+
+    // Find longest name length
+    int max_len = 0;
+    for (int i = 0; i < count; i++) {
+        int len = strlen(names[i]);
+        if (len > max_len) max_len = len;
     }
 
-    // Optional: directory path argument (default = ".")
-    const char *path = (optind < argc) ? argv[optind] : ".";
+    // Compute number of columns
+    int col_width = max_len + 2;
+    int num_cols = term_width / col_width;
+    if (num_cols < 1) num_cols = 1;
 
-    if (long_format)
-        list_long_format(path);
-    else
-        list_simple(path);
+    // Compute number of rows
+    int num_rows = (count + num_cols - 1) / num_cols;
 
-    return 0;
+    // Print vertically first
+    for (int row = 0; row < num_rows; row++) {
+        for (int col = 0; col < num_cols; col++) {
+            int index = col * num_rows + row;
+            if (index < count)
+                printf("%-*s", col_width, names[index]);
+        }
+        printf("\n");
+    }
 }
 
-void list_long_format(const char *path) {
-    DIR *dir = opendir(path);
-    if (!dir) {
+// Function to list directory contents
+void list_directory(const char *path) {
+    DIR *dir;
+    struct dirent *entry;
+
+    dir = opendir(path);
+    if (dir == NULL) {
         perror("opendir");
         return;
     }
 
-    struct dirent *entry;
+    // Collect all filenames dynamically
+    char **filenames = NULL;
+    int count = 0;
+
     while ((entry = readdir(dir)) != NULL) {
-        // Skip hidden files (those starting with '.')
-        if (entry->d_name[0] == '.')
-            continue;
-
-        char fullpath[1024];
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
-
-        struct stat sb;
-        if (lstat(fullpath, &sb) == -1) {
-            perror("lstat");
-            continue;
-        }
-
-        // 1️⃣ File type and permissions
-        char perms[11];
-        mode_to_string(sb.st_mode, perms);
-
-        // 2️⃣ Link count
-        nlink_t links = sb.st_nlink;
-
-        // 3️⃣ Owner and group names
-        struct passwd *pw = getpwuid(sb.st_uid);
-        struct group  *gr = getgrgid(sb.st_gid);
-
-        // 4️⃣ File size
-        off_t size = sb.st_size;
-
-        // 5️⃣ Modification time
-        char timebuf[64];
-        struct tm *tm = localtime(&sb.st_mtime);
-        strftime(timebuf, sizeof(timebuf), "%b %e %H:%M", tm);
-
-        // 6️⃣ Print output aligned like ls -l
-        printf("%s %2lu %-8s %-8s %8ld %s %s\n",
-               perms,
-               (unsigned long)links,
-               pw ? pw->pw_name : "unknown",
-               gr ? gr->gr_name : "unknown",
-               (long)size,
-               timebuf,
-               entry->d_name);
+        if (entry->d_name[0] == '.') continue; // skip hidden files
+        filenames = realloc(filenames, (count + 1) * sizeof(char *));
+        filenames[count] = strdup(entry->d_name);
+        count++;
     }
 
     closedir(dir);
+
+    // Sort filenames alphabetically
+    qsort(filenames, count, sizeof(char *), compare);
+
+    // Print them in columns
+    print_in_columns(filenames, count);
+
+    // Free memory
+    for (int i = 0; i < count; i++) free(filenames[i]);
+    free(filenames);
 }
 
-void list_simple(const char *path) {
-    do_ls(path);
-}
+int main(int argc, char *argv[]) {
+    const char *path = ".";
+    if (argc > 1) path = argv[1];
 
-void do_ls(const char *dir)
-{
-    struct dirent *entry;
-    DIR *dp = opendir(dir);
-    if (dp == NULL)
-    {
-        fprintf(stderr, "Cannot open directory : %s\n", dir);
-        return;
-    }
-    errno = 0;
-    while ((entry = readdir(dp)) != NULL)
-    {
-        if (entry->d_name[0] == '.')
-            continue;
-        printf("%s\n", entry->d_name);
-    }
-
-    if (errno != 0)
-    {
-        perror("readdir failed");
-    }
-
-    closedir(dp);
+    list_directory(path);
+    return 0;
 }
